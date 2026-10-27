@@ -215,7 +215,7 @@ export default function AssignProjectModal({ isOpen, onClose, onProjectCreated }
               className="px-5 py-2 text-sm font-semibold rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-colors flex items-center space-x-2 disabled:opacity-50"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>Initialize Project</span>
+              <span>Create & Assign Project</span>
             </button>
           </div>
         </form>

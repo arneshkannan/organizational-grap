@@ -80,6 +80,71 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// Google Organization SSO login
+router.post('/google-login', async (req, res) => {
+  try {
+    const { role, departmentId, email } = req.body;
+    let user = null;
+
+    if (email) {
+      user = await prisma.user.findUnique({
+        where: { email: email.toLowerCase().trim() },
+        include: { department: true, team: true }
+      });
+    }
+
+    if (!user) {
+      if (role === 'MANAGER') {
+        user = await prisma.user.findFirst({
+          where: { role: 'MANAGER' },
+          include: { department: true, team: true }
+        });
+      } else {
+        if (!departmentId) {
+          return res.status(400).json({ error: 'Please select your department to sign in.' });
+        }
+        user = await prisma.user.findFirst({
+          where: { role: 'EMPLOYEE', departmentId },
+          include: { department: true, team: true }
+        });
+      }
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'No organizational account found for the selected department/role.' });
+    }
+
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        departmentId: user.departmentId,
+        teamId: user.teamId,
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        departmentId: user.departmentId,
+        departmentName: user.department?.name || null,
+        teamId: user.teamId,
+        teamName: user.team?.name || null,
+      }
+    });
+  } catch (err) {
+    console.error('Google login error:', err);
+    return res.status(500).json({ error: 'Internal server error during Google SSO.' });
+  }
+});
+
 // Current user profile
 router.get('/me', authenticateToken, async (req, res) => {
   return res.json({

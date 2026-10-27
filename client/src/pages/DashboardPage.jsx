@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useSocket } from '../context/SocketContext.jsx';
 
 const STATUS_CONFIG = {
   ON_TRACK: { label: 'On Track', color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' },
@@ -25,6 +26,7 @@ const STATUS_CONFIG = {
 
 export default function DashboardPage({ onNavigateToGraph, onSelectProject, onOpenAssignModal, onOpenUploadModal }) {
   const { user } = useAuth();
+  const { addListener } = useSocket();
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState('ALL');
   const [projects, setProjects] = useState([]);
@@ -33,28 +35,42 @@ export default function DashboardPage({ onNavigateToGraph, onSelectProject, onOp
 
   const isManager = user?.role === 'MANAGER';
 
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      try {
-        const [deptRes, projRes, repRes] = await Promise.all([
-          api.get('/departments'),
-          api.get(selectedDept !== 'ALL' ? `/projects?departmentId=${selectedDept}` : '/projects'),
-          api.get('/reports/history'),
-        ]);
+  const loadData = async () => {
+    try {
+      const [deptRes, projRes, repRes] = await Promise.all([
+        api.get('/departments'),
+        api.get(selectedDept !== 'ALL' ? `/projects?departmentId=${selectedDept}` : '/projects'),
+        api.get('/reports/history'),
+      ]);
 
-        setDepartments(deptRes.departments || []);
-        setProjects(projRes.projects || []);
-        setReports(repRes.reports ? repRes.reports.slice(0, 5) : []);
-      } catch (err) {
-        console.error('Failed to load dashboard data:', err);
-      } finally {
-        setLoading(false);
-      }
+      setDepartments(deptRes.departments || []);
+      setProjects(projRes.projects || []);
+      setReports(repRes.reports ? repRes.reports.slice(0, 5) : []);
+    } catch (err) {
+      console.error('Failed to load dashboard data:', err);
+    } finally {
+      setLoading(false);
     }
+  };
 
+  useEffect(() => {
+    setLoading(true);
     loadData();
   }, [selectedDept]);
+
+  // Live WebSocket updates
+  useEffect(() => {
+    const unsubscribe = addListener((event) => {
+      if (
+        event.type === 'REPORT_PROCESSED' ||
+        event.type === 'PROJECT_CREATED' ||
+        event.type === 'PROJECT_DELETED'
+      ) {
+        loadData();
+      }
+    });
+    return () => unsubscribe();
+  }, [addListener, selectedDept]);
 
   // Compute metrics
   const totalProjects = projects.length;

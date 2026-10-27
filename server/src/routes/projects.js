@@ -153,4 +153,42 @@ router.post('/', authenticateToken, requireManager, async (req, res) => {
   }
 });
 
+// Delete project (Manager only)
+router.delete('/:id', authenticateToken, requireManager, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const existingProject = await prisma.project.findUnique({
+      where: { id },
+      select: { id: true, name: true }
+    });
+
+    if (!existingProject) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    // Cascade delete project (child stages, reports, blockers will cascade delete per Prisma schema)
+    await prisma.project.delete({
+      where: { id }
+    });
+
+    // Broadcast graph update via WebSocket
+    if (req.app.locals.broadcastGraphUpdate) {
+      req.app.locals.broadcastGraphUpdate('PROJECT_DELETED', {
+        projectId: id,
+        name: existingProject.name
+      });
+    }
+
+    return res.json({
+      message: 'Project deleted successfully.',
+      projectId: id,
+      name: existingProject.name
+    });
+  } catch (err) {
+    console.error('Error deleting project:', err);
+    return res.status(500).json({ error: 'Failed to delete project.' });
+  }
+});
+
 export default router;

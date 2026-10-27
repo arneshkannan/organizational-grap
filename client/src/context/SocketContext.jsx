@@ -18,14 +18,33 @@ export function SocketProvider({ children }) {
       return;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.hostname || 'localhost';
-    const wsUrl = `${protocol}//${host}:5000/ws`;
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    let wsUrl = import.meta.env.VITE_WS_URL;
+
+    if (!wsUrl) {
+      if (isLocal) {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${window.location.hostname}:5000/ws`;
+      } else if (import.meta.env.VITE_API_BASE_URL) {
+        const apiBase = import.meta.env.VITE_API_BASE_URL;
+        const wsProto = apiBase.startsWith('https') ? 'wss:' : 'ws:';
+        const cleanHost = apiBase.replace(/^https?:\/\//, '').replace(/\/$/, '');
+        wsUrl = `${wsProto}//${cleanHost}/ws`;
+      }
+    }
 
     let ws = null;
     let reconnectTimeout = null;
+    let retries = 0;
+    const maxRetries = isLocal ? 20 : 3;
 
     function connect() {
+      if (!wsUrl) {
+        console.log('ℹ️ WebSocket URL not configured for production; running in standalone mode.');
+        setIsConnected(false);
+        return;
+      }
+
       try {
         ws = new WebSocket(wsUrl);
         socketRef.current = ws;
@@ -33,6 +52,7 @@ export function SocketProvider({ children }) {
         ws.onopen = () => {
           console.log('⚡ Connected to OrgGraph WebSocket server');
           setIsConnected(true);
+          retries = 0;
         };
 
         ws.onmessage = (event) => {
@@ -62,6 +82,17 @@ export function SocketProvider({ children }) {
                 read: false,
               };
               setNotifications(prev => [newNotif, ...prev.slice(0, 19)]);
+            } else if (data.type === 'PROJECT_DELETED') {
+              const newNotif = {
+                id: Date.now() + Math.random(),
+                type: 'PROJECT_DELETED',
+                title: 'Project Removed',
+                message: `Project "${data.payload.name || 'Untitled'}" was deleted by Manager.`,
+                details: data.payload,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                read: false,
+              };
+              setNotifications(prev => [newNotif, ...prev.slice(0, 19)]);
             }
 
             // Notify all registered listeners
@@ -78,18 +109,24 @@ export function SocketProvider({ children }) {
         };
 
         ws.onclose = () => {
-          console.log('⚡ WebSocket disconnected. Retrying in 4 seconds...');
           setIsConnected(false);
-          reconnectTimeout = setTimeout(connect, 4000);
+          if (retries < maxRetries) {
+            retries++;
+            reconnectTimeout = setTimeout(connect, 4000);
+          } else {
+            console.log('⚡ WebSocket server currently unavailable. Running in standard HTTP mode.');
+          }
         };
 
         ws.onerror = (err) => {
-          console.error('WebSocket error:', err);
           ws.close();
         };
       } catch (err) {
         console.error('Failed to initialize WebSocket:', err);
-        reconnectTimeout = setTimeout(connect, 4000);
+        if (retries < maxRetries) {
+          retries++;
+          reconnectTimeout = setTimeout(connect, 4000);
+        }
       }
     }
 

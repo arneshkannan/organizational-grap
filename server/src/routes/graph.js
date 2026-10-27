@@ -7,7 +7,7 @@ const router = express.Router();
 // Get knowledge graph nodes and edges
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { departmentId, status, search } = req.query;
+    const { departmentId, status, search, includeStageNodes } = req.query;
 
     // Employees can only view their own department graph
     let effectiveDepartmentId = departmentId;
@@ -18,7 +18,8 @@ router.get('/', authenticateToken, async (req, res) => {
     const graph = await getGraphData({
       departmentId: effectiveDepartmentId,
       status,
-      search
+      search,
+      includeStageNodes
     });
 
     return res.json(graph);

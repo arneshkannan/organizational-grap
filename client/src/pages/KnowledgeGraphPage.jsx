@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -17,11 +17,18 @@ import {
   RefreshCw,
   Building,
   CheckCircle2,
+  AlertTriangle,
   Sparkles,
   Layers,
   Maximize2,
-  HelpCircle,
+  ZoomIn,
+  ZoomOut,
+  Target,
+  ShieldAlert,
   Loader2,
+  ChevronDown,
+  Eye,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 import OrgNode from '../components/graph/OrgNode.jsx';
@@ -54,6 +61,7 @@ function GraphCanvas({ onSelectProject, selectedProjectId }) {
   const [selectedDept, setSelectedDept] = useState(user?.role === 'EMPLOYEE' ? user.departmentId : 'ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [includeStageNodes, setIncludeStageNodes] = useState(false); // Default to clean, clear view!
   const [loading, setLoading] = useState(true);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -81,6 +89,7 @@ function GraphCanvas({ onSelectProject, selectedProjectId }) {
       if (selectedDept && selectedDept !== 'ALL') queryParams.append('departmentId', selectedDept);
       if (selectedStatus && selectedStatus !== 'ALL') queryParams.append('status', selectedStatus);
       if (searchQuery && searchQuery.trim() !== '') queryParams.append('search', searchQuery.trim());
+      queryParams.append('includeStageNodes', includeStageNodes ? 'true' : 'false');
 
       const url = `/graph?${queryParams.toString()}`;
       const data = await api.get(url);
@@ -95,17 +104,21 @@ function GraphCanvas({ onSelectProject, selectedProjectId }) {
         setNodes(layoutedNodes);
         setEdges(layoutedEdges);
 
-        // Small delay to ensure render before fitting view
+        // Auto center with comfortable padding & readable scale
         setTimeout(() => {
-          reactFlowInstance.fitView({ padding: 0.2, duration: 800 });
-        }, 100);
+          reactFlowInstance.fitView({
+            padding: 0.18,
+            duration: 800,
+            maxZoom: 1.0, // Prevents over-zooming while guaranteeing large readable cards
+          });
+        }, 120);
       }
     } catch (err) {
       console.error('Error loading graph:', err);
     } finally {
       setLoading(false);
     }
-  }, [selectedDept, selectedStatus, searchQuery, reactFlowInstance, setNodes, setEdges]);
+  }, [selectedDept, selectedStatus, searchQuery, includeStageNodes, reactFlowInstance, setNodes, setEdges]);
 
   // Initial load
   useEffect(() => {
@@ -116,8 +129,7 @@ function GraphCanvas({ onSelectProject, selectedProjectId }) {
   // Real-time updates subscription via WebSocket
   useEffect(() => {
     const unsubscribe = addListener((event) => {
-      if (event.type === 'REPORT_PROCESSED' || event.type === 'PROJECT_CREATED') {
-        console.log('⚡ Real-time WebSocket event received: updating Knowledge Graph live without reload!');
+      if (event.type === 'REPORT_PROCESSED' || event.type === 'PROJECT_CREATED' || event.type === 'PROJECT_DELETED') {
         fetchGraph();
       }
     });
@@ -127,7 +139,48 @@ function GraphCanvas({ onSelectProject, selectedProjectId }) {
     };
   }, [addListener, fetchGraph]);
 
-  // Search input centering on matching project node
+  // Quick zoom to a specific project
+  const focusOnProject = (projectId) => {
+    const matchedNode = nodes.find(
+      (n) => n.type === 'projectNode' && (n.data?.id === projectId || n.id === `proj-${projectId}`)
+    );
+    if (matchedNode) {
+      reactFlowInstance.setCenter(matchedNode.position.x + 160, matchedNode.position.y + 105, {
+        zoom: 1.05,
+        duration: 900,
+      });
+    }
+  };
+
+  // Focus on At-Risk or Delayed projects
+  const focusOnProblems = () => {
+    const problemNode = nodes.find(
+      (n) => n.type === 'projectNode' && (n.data?.status === 'DELAYED' || n.data?.status === 'AT_RISK')
+    );
+    if (problemNode) {
+      reactFlowInstance.setCenter(problemNode.position.x + 160, problemNode.position.y + 105, {
+        zoom: 1.1,
+        duration: 900,
+      });
+    } else {
+      reactFlowInstance.fitView({ padding: 0.2, duration: 600 });
+    }
+  };
+
+  // Reset to crisp 100% zoom
+  const resetTo100Percent = () => {
+    const orgNode = nodes.find((n) => n.type === 'orgNode') || nodes[0];
+    if (orgNode) {
+      reactFlowInstance.setCenter(orgNode.position.x + 160, orgNode.position.y + 150, {
+        zoom: 0.95,
+        duration: 700,
+      });
+    } else {
+      reactFlowInstance.zoomTo(1.0, { duration: 500 });
+    }
+  };
+
+  // Search input handler
   const handleSearchChange = (e) => {
     const val = e.target.value;
     setSearchQuery(val);
@@ -137,7 +190,7 @@ function GraphCanvas({ onSelectProject, selectedProjectId }) {
         (n) => n.type === 'projectNode' && n.data?.name?.toLowerCase().includes(val.toLowerCase())
       );
       if (matchedNode) {
-        reactFlowInstance.setCenter(matchedNode.position.x + 160, matchedNode.position.y + 100, {
+        reactFlowInstance.setCenter(matchedNode.position.x + 160, matchedNode.position.y + 105, {
           zoom: 1.1,
           duration: 800,
         });
@@ -153,88 +206,163 @@ function GraphCanvas({ onSelectProject, selectedProjectId }) {
         onSelectProject(node.data.projectId);
       } else if (node.type === 'blockerNode' && node.data?.projectId) {
         onSelectProject(node.data.projectId);
+      } else if (node.type === 'deptNode' && isManager) {
+        // Clicking a department node isolates that department for crystal-clear focus!
+        setSelectedDept(node.data.id);
       }
     },
-    [onSelectProject]
+    [onSelectProject, isManager]
   );
 
-  return (
-    <div className="relative w-full h-[calc(100vh-4rem)] bg-slate-50 dark:bg-slate-950 overflow-hidden">
-      
-      {/* Top Filter & Search Controls Floating Bar */}
-      <div className="absolute top-5 left-5 right-5 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
-        
-        {/* Left: Search & Filter inputs */}
-        <div className="flex flex-wrap items-center gap-2.5 pointer-events-auto bg-white/95 dark:bg-slate-900/95 p-2 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 backdrop-blur-md">
-          
-          {/* Search Project */}
-          <div className="relative w-56 md:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={handleSearchChange}
-              placeholder="Search project name..."
-              className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
-          </div>
+  // List of all project nodes in view for the jump selector
+  const projectNodes = nodes.filter((n) => n.type === 'projectNode');
 
-          {/* Department Filter (Only for manager, employee is locked to own dept) */}
-          {isManager && (
-            <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-200 dark:border-slate-800">
-              <Building className="w-3.5 h-3.5 text-slate-400" />
+  return (
+    <div className="relative w-full h-[calc(100vh-4rem)] bg-slate-50 dark:bg-slate-950 overflow-hidden select-none">
+      
+      {/* Top Floating Master Control Center */}
+      <div className="absolute top-4 left-4 right-4 z-20 space-y-2 pointer-events-none">
+        
+        {/* Row 1: Search, Department Quick Tabs & Health Filter */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          
+          {/* Left Controls */}
+          <div className="flex flex-wrap items-center gap-2 pointer-events-auto bg-white/95 dark:bg-slate-900/95 p-2 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 backdrop-blur-md">
+            
+            {/* Search Input */}
+            <div className="relative w-52 md:w-60">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={handleSearchChange}
+                placeholder="Search project..."
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+
+            {/* Health Filter */}
+            <div className="flex items-center space-x-1 pl-2 border-l border-slate-200 dark:border-slate-800">
+              <Filter className="w-3.5 h-3.5 text-slate-400" />
               <select
-                value={selectedDept}
-                onChange={(e) => setSelectedDept(e.target.value)}
-                className="bg-transparent text-xs font-semibold text-slate-700 dark:text-slate-200 pr-2 py-1 focus:outline-none cursor-pointer"
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="bg-transparent text-xs font-semibold text-slate-700 dark:text-slate-200 pr-1 py-1 focus:outline-none cursor-pointer"
               >
-                <option value="ALL">All Departments</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
+                <option value="ALL">All Statuses</option>
+                <option value="ON_TRACK">🟢 On Track</option>
+                <option value="AT_RISK">🟡 At Risk</option>
+                <option value="DELAYED">🔴 Delayed</option>
+                <option value="COMPLETED">🔵 Completed</option>
               </select>
             </div>
-          )}
 
-          {/* Health Status Filter */}
-          <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-200 dark:border-slate-800">
-            <Filter className="w-3.5 h-3.5 text-slate-400" />
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-slate-700 dark:text-slate-200 pr-2 py-1 focus:outline-none cursor-pointer"
+            {/* View Mode Switcher (Clean Overview vs Deep Pipeline) */}
+            <div className="flex items-center space-x-1 pl-2 border-l border-slate-200 dark:border-slate-800">
+              <button
+                onClick={() => setIncludeStageNodes(!includeStageNodes)}
+                className={`px-2.5 py-1 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                  includeStageNodes
+                    ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30'
+                    : 'bg-brand-500/10 text-brand-500 border border-brand-500/30'
+                }`}
+                title={includeStageNodes ? "Switch to High-Clarity Compact View" : "Expand all 40 stage milestone nodes"}
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>{includeStageNodes ? '🔬 Deep Pipeline View' : '🎯 Clean Overview (Recommended)'}</span>
+              </button>
+            </div>
+
+            {/* Refresh */}
+            <button
+              onClick={() => {
+                setLoading(true);
+                fetchGraph();
+              }}
+              className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-brand-500 transition-colors"
+              title="Refresh Graph"
             >
-              <option value="ALL">All Health Statuses</option>
-              <option value="ON_TRACK">On Track (Green)</option>
-              <option value="AT_RISK">At Risk (Amber)</option>
-              <option value="DELAYED">Delayed (Red)</option>
-              <option value="COMPLETED">Completed (Blue)</option>
-            </select>
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-brand-500' : ''}`} />
+            </button>
           </div>
 
-          {/* Re-layout / Refresh Button */}
-          <button
-            onClick={() => {
-              setLoading(true);
-              fetchGraph();
-            }}
-            className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-brand-500 transition-colors"
-            title="Refresh & Relayout Graph"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-brand-500' : ''}`} />
-          </button>
+          {/* Right: Quick Action Buttons (Jump to Problems & Zoom Presets) */}
+          <div className="flex items-center gap-2 pointer-events-auto bg-white/95 dark:bg-slate-900/95 p-1.5 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 backdrop-blur-md">
+            
+            {/* Quick jump to at-risk button */}
+            <button
+              onClick={focusOnProblems}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 border border-rose-500/30 flex items-center gap-1.5 transition-colors"
+              title="Center on At-Risk or Delayed Projects"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 animate-pulse" />
+              <span>Spot Blockers</span>
+            </button>
+
+            {/* Reset to 100% Crisp Zoom */}
+            <button
+              onClick={resetTo100Percent}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1"
+              title="Reset to 100% Crisp Human-Readable Zoom"
+            >
+              <Target className="w-3.5 h-3.5 text-brand-500" />
+              <span>100% Zoom</span>
+            </button>
+
+            {/* Fit View */}
+            <button
+              onClick={() => reactFlowInstance.fitView({ padding: 0.18, duration: 600, maxZoom: 1.0 })}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1"
+              title="Fit Full Hierarchy on Screen"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-brand-500" />
+              <span>Fit Screen</span>
+            </button>
+          </div>
         </div>
 
-        {/* Right: Reset Fit Button */}
-        <div className="pointer-events-auto bg-white/95 dark:bg-slate-900/95 p-1.5 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 backdrop-blur-md flex items-center space-x-2">
-          <button
-            onClick={() => reactFlowInstance.fitView({ padding: 0.2, duration: 600 })}
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5"
-          >
-            <Maximize2 className="w-3.5 h-3.5 text-brand-500" />
-            <span>Center Graph</span>
-          </button>
-        </div>
+        {/* Row 2: Department Focus Tabs (Single-click department isolation for ultra-crisp view!) */}
+        {isManager && (
+          <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto bg-white/90 dark:bg-slate-900/90 p-1.5 rounded-2xl shadow-md border border-slate-200/80 dark:border-slate-800/80 backdrop-blur-sm w-fit">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2">
+              Focus Department:
+            </span>
+
+            <button
+              onClick={() => setSelectedDept('ALL')}
+              className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all ${
+                selectedDept === 'ALL'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              🏢 All Departments (8)
+            </button>
+
+            {departments.map((d) => {
+              const isActive = selectedDept === d.id;
+              const emoji =
+                d.name === 'Engineering' ? '💻' :
+                d.name === 'Marketing' ? '📣' :
+                d.name === 'HR' ? '👥' :
+                d.name === 'Finance' ? '💰' : '⚙️';
+
+              return (
+                <button
+                  key={d.id}
+                  onClick={() => setSelectedDept(d.id)}
+                  className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all ${
+                    isActive
+                      ? 'bg-brand-600 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {emoji} {d.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Loading Overlay */}
@@ -242,7 +370,7 @@ function GraphCanvas({ onSelectProject, selectedProjectId }) {
         <div className="absolute inset-0 z-30 bg-slate-900/20 backdrop-blur-xs flex items-center justify-center">
           <div className="px-5 py-3 rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3 text-xs font-semibold text-slate-800 dark:text-slate-200">
             <Loader2 className="w-5 h-5 animate-spin text-brand-500" />
-            <span>Calculating Hierarchical Dagre Layout...</span>
+            <span>Calculating High-Clarity Hierarchical Graph Layout...</span>
           </div>
         </div>
       )}
@@ -256,12 +384,12 @@ function GraphCanvas({ onSelectProject, selectedProjectId }) {
         onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
         fitView
-        minZoom={0.15}
-        maxZoom={1.8}
+        minZoom={0.35}
+        maxZoom={2.2}
         attributionPosition="bottom-left"
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={24} size={1.2} color="currentColor" className="text-slate-300 dark:text-slate-800" />
+        <Background gap={28} size={1.2} color="currentColor" className="text-slate-300 dark:text-slate-800" />
         <Controls position="bottom-left" showInteractive={false} />
         <MiniMap
           nodeColor={(n) => {

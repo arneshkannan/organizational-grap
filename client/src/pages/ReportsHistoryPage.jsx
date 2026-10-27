@@ -10,7 +10,7 @@ import {
   ShieldAlert,
   Loader2,
 } from 'lucide-react';
-import { api } from '../api/client.js';
+import { api, BASE_URL } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function ReportsHistoryPage({ onSelectProject }) {
@@ -145,7 +145,7 @@ export default function ReportsHistoryPage({ onSelectProject }) {
                     </div>
 
                     <a
-                      href={`/api/reports/download/${rpt.fileUrl ? rpt.fileUrl.replace('/uploads/', '') : rpt.fileName}`}
+                      href={`${BASE_URL}/reports/download/${rpt.fileUrl ? rpt.fileUrl.replace('/uploads/', '') : rpt.fileName}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-brand-500 hover:text-white font-semibold text-xs transition-colors flex items-center gap-1.5"

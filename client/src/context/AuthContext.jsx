@@ -52,6 +52,15 @@ export function AuthProvider({ children }) {
     return res.user;
   };
 
+  const loginWithGoogle = async ({ role, departmentId, email }) => {
+    const res = await api.post('/auth/google-login', { role, departmentId, email });
+    localStorage.setItem('orggraph_token', res.token);
+    localStorage.setItem('orggraph_user', JSON.stringify(res.user));
+    setToken(res.token);
+    setUser(res.user);
+    return res.user;
+  };
+
   const logout = () => {
     localStorage.removeItem('orggraph_token');
     localStorage.removeItem('orggraph_user');
@@ -60,7 +69,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, loginWithGoogle, logout }}>
       {children}
     </AuthContext.Provider>
   );

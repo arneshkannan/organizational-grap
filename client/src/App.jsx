@@ -14,9 +14,11 @@ import ProjectSidePanel from './components/ProjectSidePanel.jsx';
 import AssignProjectModal from './components/AssignProjectModal.jsx';
 import UploadReportModal from './components/UploadReportModal.jsx';
 import { Loader2 } from 'lucide-react';
+import { useSocket } from './context/SocketContext.jsx';
 
 export default function App() {
   const { user, loading } = useAuth();
+  const { addListener } = useSocket();
   const [activePage, setActivePage] = useState('graph'); // default to core feature
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -38,6 +40,21 @@ export default function App() {
   useEffect(() => {
     loadProjects();
   }, [user]);
+
+  // Synchronize projects on WebSocket events
+  useEffect(() => {
+    const unsubscribe = addListener((event) => {
+      if (
+        event.type === 'PROJECT_CREATED' ||
+        event.type === 'PROJECT_DELETED' ||
+        event.type === 'REPORT_PROCESSED'
+      ) {
+        loadProjects();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [addListener]);
 
   if (loading) {
     return (
@@ -135,6 +152,12 @@ export default function App() {
         projectId={selectedProjectId}
         onClose={() => setSelectedProjectId(null)}
         onUploadNewReport={handleOpenUploadForProject}
+        onProjectDeleted={(deletedId) => {
+          loadProjects();
+          if (selectedProjectId === deletedId) {
+            setSelectedProjectId(null);
+          }
+        }}
       />
 
       {/* Assign Project Modal (Manager Only) */}

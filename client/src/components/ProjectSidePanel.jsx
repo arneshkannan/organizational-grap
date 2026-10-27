@@ -12,8 +12,10 @@ import {
   ArrowRight,
   ShieldAlert,
   Loader2,
+  Trash2,
 } from 'lucide-react';
-import { api } from '../api/client.js';
+import { api, BASE_URL } from '../api/client.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const STATUS_BADGES = {
   ON_TRACK: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30',
@@ -22,10 +24,16 @@ const STATUS_BADGES = {
   COMPLETED: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
 };
 
-export default function ProjectSidePanel({ projectId, onClose, onUploadNewReport }) {
+export default function ProjectSidePanel({ projectId, onClose, onUploadNewReport, onProjectDeleted }) {
+  const { user } = useAuth();
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+
+  const isManager = user?.role === 'MANAGER';
 
   useEffect(() => {
     if (!projectId) return;
@@ -33,6 +41,7 @@ export default function ProjectSidePanel({ projectId, onClose, onUploadNewReport
     let isMounted = true;
     setLoading(true);
     setError(null);
+    setDeleteError(null);
 
     async function fetchDetails() {
       try {
@@ -53,6 +62,25 @@ export default function ProjectSidePanel({ projectId, onClose, onUploadNewReport
       isMounted = false;
     };
   }, [projectId]);
+
+  const handleDeleteProject = async () => {
+    if (!project) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.delete(`/projects/${project.id}`);
+      setShowDeleteConfirm(false);
+      if (onProjectDeleted) {
+        onProjectDeleted(project.id);
+      }
+      onClose();
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+      setDeleteError(err.message || 'Failed to delete project');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (!projectId) return null;
 
@@ -135,6 +163,21 @@ export default function ProjectSidePanel({ projectId, onClose, onUploadNewReport
                     <span>Stage: <strong className="text-amber-500">{project.currentStage}</strong></span>
                   </div>
                 </div>
+
+                {/* Manager Actions Bar */}
+                {isManager && (
+                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-slate-400">Manager Controls</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-200 dark:border-rose-800 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Project</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Active Blockers Section */}
@@ -272,7 +315,7 @@ export default function ProjectSidePanel({ projectId, onClose, onUploadNewReport
                                   {rpt.fileName}
                                 </span>
                                 <a
-                                  href={`/api/reports/download/${rpt.fileUrl ? rpt.fileUrl.replace('/uploads/', '') : rpt.fileName}`}
+                                  href={`${BASE_URL}/reports/download/${rpt.fileUrl ? rpt.fileUrl.replace('/uploads/', '') : rpt.fileName}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 hover:bg-brand-500 hover:text-white transition-colors"
@@ -297,6 +340,62 @@ export default function ProjectSidePanel({ projectId, onClose, onUploadNewReport
           ) : null}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal for Manager */}
+      {showDeleteConfirm && project && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 animate-in zoom-in-95 duration-200 space-y-4">
+            <div className="flex items-center space-x-3 text-rose-500">
+              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">Delete Project</h3>
+                <p className="text-xs text-slate-500">Manager Authorization Required</p>
+              </div>
+            </div>
+
+            {deleteError && (
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-300 text-xs">
+                {deleteError}
+              </div>
+            )}
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to permanently delete <strong className="text-slate-900 dark:text-slate-100">"{project.name}"</strong>? All associated 5-stage milestones, uploaded reports, and active blockers will be completely purged from the knowledge graph. This action cannot be undone.
+            </p>
+
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleDeleteProject}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 shadow-md shadow-rose-600/20 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting Project...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Confirm Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

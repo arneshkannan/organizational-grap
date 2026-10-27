@@ -136,3 +136,27 @@ GEMINI_API_KEY=""
    - The circular progress ring increases to **78%**.
    - An instant toast notification pops up announcing the team's submission.
    - Clicking the project card reveals the AI extraction, completed milestones, and original report download link.
+
+---
+
+## ☁️ Deployment Guide (Vercel & Cloud)
+
+### Frontend Deployment on Vercel
+1. Push your code to GitHub / GitLab / Bitbucket.
+2. In Vercel, click **Add New Project** and select your repository.
+3. **Build & Output Settings**:
+   - Vercel will automatically read `vercel.json` from the repository root.
+   - Alternatively, if setting **Root Directory** in Vercel UI, select `client` (both setups are supported).
+4. **Environment Variables (Optional)**:
+   - `VITE_API_BASE_URL`: URL of your deployed Express backend (e.g. `https://orggraph-server.onrender.com`).
+   - `VITE_WS_URL`: WebSocket URL of your deployed server (e.g. `wss://orggraph-server.onrender.com/ws`).
+5. Click **Deploy**. Vercel will compile `client/dist` and serve the application without 404 errors.
+
+### Backend Hosting Notes (Express + WebSockets + SQLite)
+- **Vercel is serverless**: Vercel does not support persistent WebSockets (`ws`) or writable local SQLite files.
+- To deploy the backend, use a persistent container host:
+  - **Render / Railway / Fly.io / VPS**:
+    - Build command: `npm install && npx prisma db push && npm run db:seed`
+    - Start command: `node src/server.js`
+    - Environment variables: `PORT=5000`, `DATABASE_URL="file:./dev.db"`, `JWT_SECRET=...`, `GEMINI_API_KEY=...`
+

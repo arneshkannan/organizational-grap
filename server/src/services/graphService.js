@@ -70,6 +70,11 @@ export async function getGraphData(filters = {}) {
     // Only include department if it has matching projects or if no project search filter is active
     const deptProjectsCount = dept.teams.reduce((acc, t) => acc + t.projects.length, 0);
     
+    // When filtering by departmentId, skip other departments
+    if (departmentId && departmentId !== 'ALL' && dept.id !== departmentId) {
+      continue;
+    }
+
     // When filtering by search or status, skip empty departments
     if ((status && status !== 'ALL' || search) && deptProjectsCount === 0) {
       continue;
@@ -163,39 +168,42 @@ export async function getGraphData(filters = {}) {
           style: { stroke: '#0ea5e9', strokeWidth: 2 }
         });
 
-        // Connected Stage Pipeline Nodes
-        for (const stg of proj.stages) {
-          const stageNodeId = `stage-${proj.id}-${stg.name}`;
-          const isCurrent = stg.status === 'CURRENT';
-          const isCompleted = stg.status === 'COMPLETED';
+        // Connected Stage Pipeline Nodes (optional for high-clarity view)
+        const shouldIncludeStages = filters.includeStageNodes === 'true' || filters.includeStageNodes === true;
+        if (shouldIncludeStages) {
+          for (const stg of proj.stages) {
+            const stageNodeId = `stage-${proj.id}-${stg.name}`;
+            const isCurrent = stg.status === 'CURRENT';
+            const isCompleted = stg.status === 'COMPLETED';
 
-          nodes.push({
-            id: stageNodeId,
-            type: 'stageNode',
-            data: {
-              id: stg.id,
-              projectId: proj.id,
-              name: stg.name,
-              order: stg.order,
-              status: stg.status,
-              completedAt: stg.completedAt,
-            },
-            position: { x: 0, y: 0 }
-          });
+            nodes.push({
+              id: stageNodeId,
+              type: 'stageNode',
+              data: {
+                id: stg.id,
+                projectId: proj.id,
+                name: stg.name,
+                order: stg.order,
+                status: stg.status,
+                completedAt: stg.completedAt,
+              },
+              position: { x: 0, y: 0 }
+            });
 
-          edges.push({
-            id: `e-proj-stage-${proj.id}-${stg.name}`,
-            source: projNodeId,
-            target: stageNodeId,
-            label: isCurrent ? 'CURRENTLY_IN_STAGE' : (isCompleted ? 'COMPLETED_STAGE' : 'PLANNED_STAGE'),
-            type: 'smoothstep',
-            animated: isCurrent,
-            style: {
-              stroke: isCurrent ? '#f59e0b' : (isCompleted ? '#10b981' : '#94a3b8'),
-              strokeWidth: isCurrent ? 3 : 1.5,
-              strokeDasharray: isCompleted || isCurrent ? undefined : '5,5'
-            }
-          });
+            edges.push({
+              id: `e-proj-stage-${proj.id}-${stg.name}`,
+              source: projNodeId,
+              target: stageNodeId,
+              label: isCurrent ? 'CURRENTLY_IN_STAGE' : (isCompleted ? 'COMPLETED_STAGE' : 'PLANNED_STAGE'),
+              type: 'smoothstep',
+              animated: isCurrent,
+              style: {
+                stroke: isCurrent ? '#f59e0b' : (isCompleted ? '#10b981' : '#94a3b8'),
+                strokeWidth: isCurrent ? 3 : 1.5,
+                strokeDasharray: isCompleted || isCurrent ? undefined : '5,5'
+              }
+            });
+          }
         }
 
         // Active Blocker Nodes

@@ -11,9 +11,12 @@ import {
   Loader2,
   AlertCircle,
   Sparkles,
+  Trash2,
+  CheckCircle2,
 } from 'lucide-react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useSocket } from '../context/SocketContext.jsx';
 
 const STATUS_BADGES = {
   ON_TRACK: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30',
@@ -24,12 +27,16 @@ const STATUS_BADGES = {
 
 export default function ProjectsPage({ onSelectProject, onNavigateToGraph, onOpenAssignModal, onOpenUploadModal }) {
   const { user } = useAuth();
+  const { addListener } = useSocket();
   const [projects, setProjects] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [projectToDelete, setProjectToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState(null);
 
   const isManager = user?.role === 'MANAGER';
 
@@ -45,30 +52,95 @@ export default function ProjectsPage({ onSelectProject, onNavigateToGraph, onOpe
     loadDepts();
   }, []);
 
-  useEffect(() => {
-    async function loadProjects() {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams();
-        if (selectedDept !== 'ALL') params.append('departmentId', selectedDept);
-        if (selectedStatus !== 'ALL') params.append('status', selectedStatus);
-        if (search.trim()) params.append('search', search.trim());
+  const loadProjects = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (selectedDept !== 'ALL') params.append('departmentId', selectedDept);
+      if (selectedStatus !== 'ALL') params.append('status', selectedStatus);
+      if (search.trim()) params.append('search', search.trim());
 
-        const res = await api.get(`/projects?${params.toString()}`);
-        setProjects(res.projects || []);
-      } catch (err) {
-        console.error('Failed to load projects:', err);
-      } finally {
-        setLoading(false);
-      }
+      const res = await api.get(`/projects?${params.toString()}`);
+      setProjects(res.projects || []);
+    } catch (err) {
+      console.error('Failed to load projects:', err);
+    } finally {
+      setLoading(false);
     }
+  };
 
+  useEffect(() => {
+    setLoading(true);
     loadProjects();
   }, [selectedDept, selectedStatus, search]);
+
+  // Real-time synchronization
+  useEffect(() => {
+    const unsubscribe = addListener((event) => {
+      if (
+        event.type === 'REPORT_PROCESSED' ||
+        event.type === 'PROJECT_CREATED' ||
+        event.type === 'PROJECT_DELETED'
+      ) {
+        loadProjects();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [addListener, selectedDept, selectedStatus, search]);
+
+  // Manager delete project handler
+  const handleDeleteProject = async () => {
+    if (!projectToDelete) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/projects/${projectToDelete.id}`);
+      setProjects((prev) => prev.filter((p) => p.id !== projectToDelete.id));
+      setActionFeedback({
+        type: 'success',
+        message: `Project "${projectToDelete.name}" deleted successfully along with all associated stages, reports, and blockers.`,
+      });
+      setProjectToDelete(null);
+      setTimeout(() => setActionFeedback(null), 5000);
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+      setActionFeedback({
+        type: 'error',
+        message: err.message || 'Failed to delete project.',
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
       
+      {/* Feedback banner */}
+      {actionFeedback && (
+        <div
+          className={`p-4 rounded-2xl flex items-center justify-between text-xs font-semibold animate-in fade-in duration-200 border ${
+            actionFeedback.type === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+              : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+          }`}
+        >
+          <div className="flex items-center space-x-2">
+            {actionFeedback.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-500" />
+            )}
+            <span>{actionFeedback.message}</span>
+          </div>
+          <button
+            onClick={() => setActionFeedback(null)}
+            className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       {/* Header & Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -84,10 +156,10 @@ export default function ProjectsPage({ onSelectProject, onNavigateToGraph, onOpe
           {isManager ? (
             <button
               onClick={onOpenAssignModal}
-              className="px-4 py-2 rounded-xl bg-brand-600 text-white font-bold text-xs hover:bg-brand-500 shadow-md flex items-center gap-1.5 transition-colors"
+              className="px-4 py-2 rounded-xl bg-brand-600 text-white font-bold text-xs hover:bg-brand-500 shadow-md shadow-brand-600/20 flex items-center gap-1.5 transition-all transform hover:-translate-y-0.5 active:translate-y-0"
             >
               <PlusCircle className="w-4 h-4" />
-              <span>Assign Project</span>
+              <span>Create / Assign Project</span>
             </button>
           ) : (
             <button
@@ -255,6 +327,20 @@ export default function ProjectsPage({ onSelectProject, onNavigateToGraph, onOpe
                         >
                           <Network className="w-4 h-4" />
                         </button>
+
+                        {/* Manager Delete Button */}
+                        {isManager && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProjectToDelete(proj);
+                            }}
+                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-500/10 transition-colors inline-flex items-center"
+                            title="Delete Project (Manager Only)"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -264,6 +350,56 @@ export default function ProjectsPage({ onSelectProject, onNavigateToGraph, onOpe
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal for Manager */}
+      {projectToDelete && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 animate-in zoom-in-95 duration-200 space-y-4">
+            <div className="flex items-center space-x-3 text-rose-500">
+              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">Delete Project</h3>
+                <p className="text-xs text-slate-500">Manager Authorization Required</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to permanently delete <strong className="text-slate-900 dark:text-slate-100">"{projectToDelete.name}"</strong>? All associated 5-stage milestones, uploaded reports, and active blockers will be completely purged from the knowledge graph. This action cannot be undone.
+            </p>
+
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setProjectToDelete(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleDeleteProject}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 shadow-md shadow-rose-600/20 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting Project...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Confirm Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
-const BASE_URL = '/api';
+const RAW_API_URL = import.meta.env.VITE_API_BASE_URL || '';
+export const BASE_URL = RAW_API_URL ? `${RAW_API_URL.replace(/\/$/, '')}/api` : '/api';
 
 export async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('orggraph_token');
@@ -47,5 +48,7 @@ export async function apiRequest(endpoint, options = {}) {
 export const api = {
   get: (endpoint) => apiRequest(endpoint, { method: 'GET' }),
   post: (endpoint, body) => apiRequest(endpoint, { method: 'POST', body: body instanceof FormData ? body : JSON.stringify(body) }),
+  put: (endpoint, body) => apiRequest(endpoint, { method: 'PUT', body: body instanceof FormData ? body : JSON.stringify(body) }),
+  delete: (endpoint) => apiRequest(endpoint, { method: 'DELETE' }),
   upload: (endpoint, formData) => apiRequest(endpoint, { method: 'POST', body: formData }),
 };

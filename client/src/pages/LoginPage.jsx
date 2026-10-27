@@ -1,38 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Network,
-  Shield,
-  User,
-  Building,
-  KeyRound,
-  ArrowRight,
-  Sparkles,
-  Loader2,
-  CheckCircle2,
-} from 'lucide-react';
+import { Loader2, ChevronDown, Check, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../api/client.js';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
 
-  const [role, setRole] = useState('MANAGER'); // 'MANAGER' or 'EMPLOYEE'
-  const [email, setEmail] = useState('manager@orggraph.internal');
-  const [password, setPassword] = useState('Manager@123');
+  const [role, setRole] = useState('EMPLOYEE'); // Default to EMPLOYEE as shown in the mockup
   const [departments, setDepartments] = useState([]);
-  const [departmentId, setDepartmentId] = useState('');
+  const [selectedDeptId, setSelectedDeptId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Optional manual credentials drawer toggle
+  const [showManualLogin, setShowManualLogin] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  // Google SSO simulated dialog
+  const [showGooglePicker, setShowGooglePicker] = useState(false);
+  const [availableAccounts, setAvailableAccounts] = useState([]);
 
   useEffect(() => {
     async function loadDepts() {
       try {
         const res = await api.get('/departments');
-        setDepartments(res.departments);
-        if (res.departments.length > 0) {
-          const eng = res.departments.find(d => d.name === 'Engineering') || res.departments[0];
-          setDepartmentId(eng.id);
-        }
+        setDepartments(res.departments || []);
       } catch (err) {
         console.error('Failed to load departments:', err);
       }
@@ -40,33 +33,85 @@ export default function LoginPage() {
     loadDepts();
   }, []);
 
-  const handleRoleChange = (newRole) => {
-    setRole(newRole);
-    setError(null);
-    if (newRole === 'MANAGER') {
+  // Update available accounts based on selected role & department
+  useEffect(() => {
+    if (role === 'MANAGER') {
+      setAvailableAccounts([
+        {
+          name: 'Eleanor Vance',
+          email: 'manager@orggraph.internal',
+          dept: 'Executive Management',
+          avatarText: 'EV'
+        }
+      ]);
       setEmail('manager@orggraph.internal');
       setPassword('Manager@123');
     } else {
-      const eng = departments.find(d => d.name === 'Engineering') || departments[0];
-      if (eng) setDepartmentId(eng.id);
-      setEmail('alice@eng.orggraph.internal');
-      setPassword('Employee@123');
+      const dept = departments.find(d => d.id === selectedDeptId);
+      if (dept) {
+        if (dept.name === 'Engineering') {
+          setAvailableAccounts([
+            { name: 'Alice Chen', email: 'alice@eng.orggraph.internal', dept: 'Engineering (Frontend Core)', avatarText: 'AC' },
+            { name: 'Bob Martinez', email: 'bob@eng.orggraph.internal', dept: 'Engineering (Backend & Cloud)', avatarText: 'BM' }
+          ]);
+          setEmail('alice@eng.orggraph.internal');
+        } else if (dept.name === 'Marketing') {
+          setAvailableAccounts([
+            { name: 'Charlie Kim', email: 'charlie@mkt.orggraph.internal', dept: 'Marketing (Growth)', avatarText: 'CK' },
+            { name: 'Diana Ross', email: 'diana@mkt.orggraph.internal', dept: 'Marketing (Brand)', avatarText: 'DR' }
+          ]);
+          setEmail('charlie@mkt.orggraph.internal');
+        } else if (dept.name === 'HR') {
+          setAvailableAccounts([
+            { name: 'Evan Wright', email: 'evan@hr.orggraph.internal', dept: 'HR (Talent)', avatarText: 'EW' }
+          ]);
+          setEmail('evan@hr.orggraph.internal');
+        } else if (dept.name === 'Finance') {
+          setAvailableAccounts([
+            { name: 'George Bailey', email: 'george@fin.orggraph.internal', dept: 'Finance (FP&A)', avatarText: 'GB' }
+          ]);
+          setEmail('george@fin.orggraph.internal');
+        } else {
+          setAvailableAccounts([
+            { name: 'Ian Malcolm', email: 'ian@ops.orggraph.internal', dept: 'Operations (Cloud)', avatarText: 'IM' }
+          ]);
+          setEmail('ian@ops.orggraph.internal');
+        }
+        setPassword('Employee@123');
+      } else {
+        setAvailableAccounts([]);
+      }
+    }
+  }, [role, selectedDeptId, departments]);
+
+  const handleGoogleClick = () => {
+    setError(null);
+    if (role === 'EMPLOYEE' && !selectedDeptId) {
+      setError('Please select your department first.');
+      return;
+    }
+    setShowGooglePicker(true);
+  };
+
+  const executeGoogleLogin = async (chosenEmail) => {
+    setLoading(true);
+    setError(null);
+    setShowGooglePicker(false);
+
+    try {
+      await loginWithGoogle({
+        role,
+        departmentId: role === 'EMPLOYEE' ? selectedDeptId : undefined,
+        email: chosenEmail
+      });
+    } catch (err) {
+      setError(err.message || 'Google authentication failed');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDeptSelect = (deptId) => {
-    setDepartmentId(deptId);
-    const dept = departments.find(d => d.id === deptId);
-    if (dept) {
-      if (dept.name === 'Engineering') setEmail('alice@eng.orggraph.internal');
-      else if (dept.name === 'Marketing') setEmail('charlie@mkt.orggraph.internal');
-      else if (dept.name === 'HR') setEmail('evan@hr.orggraph.internal');
-      else if (dept.name === 'Finance') setEmail('george@fin.orggraph.internal');
-      else if (dept.name === 'Operations') setEmail('ian@ops.orggraph.internal');
-    }
-  };
-
-  const handleSubmit = async (e) => {
+  const handleManualSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
@@ -76,195 +121,276 @@ export default function LoginPage() {
         email,
         password,
         role,
-        departmentId: role === 'EMPLOYEE' ? departmentId : undefined,
+        departmentId: role === 'EMPLOYEE' ? selectedDeptId : undefined,
       });
     } catch (err) {
-      setError(err.message || 'Login failed. Please verify credentials.');
+      setError(err.message || 'Authentication failed');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white relative overflow-hidden">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#0a1514] text-white relative overflow-hidden font-sans select-none">
       
-      {/* Background Decorative Grid */}
-      <div className="absolute inset-0 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] [background-size:24px_24px] opacity-15" />
-      <div className="absolute -top-40 -right-40 w-96 h-96 bg-brand-500/20 rounded-full blur-3xl" />
-      <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl" />
+      {/* Background Connected Graph Network */}
+      <svg
+        className="absolute inset-0 w-full h-full pointer-events-none opacity-90"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#3d8276" stopOpacity="0.8" />
+            <stop offset="100%" stopColor="#25574e" stopOpacity="0.9" />
+          </radialGradient>
+        </defs>
 
-      <div className="w-full max-w-md relative z-10">
+        {/* Network connection lines */}
+        {/* Left cluster */}
+        <line x1="28%" y1="26%" x2="18%" y2="50%" stroke="#1c473f" strokeWidth="2.5" />
+        <line x1="18%" y1="50%" x2="32%" y2="76%" stroke="#1c473f" strokeWidth="2.5" />
+        <line x1="28%" y1="26%" x2="42%" y2="40%" stroke="#163c35" strokeWidth="2" strokeDasharray="6,6" />
+
+        {/* Right cluster */}
+        <line x1="72%" y1="29%" x2="84%" y2="53%" stroke="#1c473f" strokeWidth="2.5" />
+        <line x1="72%" y1="29%" x2="62%" y2="45%" stroke="#163c35" strokeWidth="2" strokeDasharray="6,6" />
+        <line x1="84%" y1="53%" x2="71%" y2="75%" stroke="#1c473f" strokeWidth="2.5" />
+
+        {/* Left Graph Nodes */}
+        <circle cx="28%" cy="26%" r="22" fill="url(#nodeGlow)" />
+        <circle cx="18%" cy="50%" r="14" fill="url(#nodeGlow)" />
+        <circle cx="32%" cy="76%" r="22" fill="url(#nodeGlow)" />
+
+        {/* Right Graph Nodes */}
+        <circle cx="72%" cy="29%" r="22" fill="url(#nodeGlow)" />
+        <circle cx="84%" cy="53%" r="14" fill="url(#nodeGlow)" />
+        <circle cx="71%" cy="75%" r="22" fill="url(#nodeGlow)" />
+      </svg>
+
+      {/* Main Authentication Card */}
+      <div className="w-full max-w-[440px] relative z-10 bg-[#0e221f] border border-[#1f4a42]/70 rounded-2xl p-8 shadow-2xl shadow-black/60 transition-all duration-300">
         
-        {/* Brand Banner */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-indigo-500 shadow-xl shadow-brand-500/30 mb-4 border border-brand-400/30">
-            <Network className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-3xl font-extrabold tracking-tight">OrgGraph</h1>
-          <p className="text-sm text-indigo-200/80 mt-1">
-            Self-Updating Organizational Knowledge Graph
-          </p>
+        {/* Product Name Header */}
+        <div className="text-[#38b29c] font-medium text-sm tracking-wide mb-1">
+          [OrgGraph]
         </div>
 
-        {/* Auth Card */}
-        <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-700/80 rounded-3xl p-7 shadow-2xl space-y-6">
-          
-          {/* Role Selector Tabs */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-              Select Login Role
-            </label>
-            <div className="grid grid-cols-2 p-1.5 rounded-2xl bg-slate-800/80 border border-slate-700 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => handleRoleChange('MANAGER')}
-                className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
-                  role === 'MANAGER'
-                    ? 'bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Shield className="w-4 h-4" />
-                <span>Manager</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRoleChange('EMPLOYEE')}
-                className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
-                  role === 'EMPLOYEE'
-                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <User className="w-4 h-4" />
-                <span>Employee</span>
-              </button>
-            </div>
+        {/* Title */}
+        <h1 className="text-2xl font-bold text-white mb-6 tracking-tight">
+          Sign in
+        </h1>
+
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs animate-in fade-in duration-150">
+            {error}
           </div>
+        )}
 
-          {error && (
-            <div className="p-3.5 text-xs rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300">
-              {error}
-            </div>
-          )}
+        {/* Role Toggle (Manager | Employee) */}
+        <div className="grid grid-cols-2 p-1 rounded-xl bg-[#081614] border border-[#153a32] mb-5">
+          <button
+            type="button"
+            onClick={() => {
+              setRole('MANAGER');
+              setError(null);
+            }}
+            className={`py-2 rounded-lg text-xs font-semibold transition-all ${
+              role === 'MANAGER'
+                ? 'bg-[#147a6e] text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Manager
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRole('EMPLOYEE');
+              setError(null);
+            }}
+            className={`py-2 rounded-lg text-xs font-semibold transition-all ${
+              role === 'EMPLOYEE'
+                ? 'bg-[#147a6e] text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Employee
+          </button>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            
-            {/* Department Selector for Employees */}
-            {role === 'EMPLOYEE' && (
-              <div className="animate-in fade-in duration-200">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Building className="w-3.5 h-3.5 text-emerald-400" />
-                  Your Department *
-                </label>
-                <select
-                  value={departmentId}
-                  onChange={(e) => handleDeptSelect(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700 bg-slate-800/90 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
-                >
-                  {departments.map((dept) => (
-                    <option key={dept.id} value={dept.id}>
-                      {dept.name} ({dept.code})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Employees have strict RBAC access to their own department.
-                </p>
-              </div>
-            )}
-
-            {/* Email Input */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Corporate Email
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@orggraph.internal"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700 bg-slate-800/90 text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-            </div>
-
-            {/* Password Input */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Password
-              </label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700 bg-slate-800/90 text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className={`w-full py-3 px-4 rounded-xl font-bold text-sm text-white shadow-lg transition-all flex items-center justify-center space-x-2 disabled:opacity-50 ${
-                role === 'MANAGER'
-                  ? 'bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 shadow-brand-500/25'
-                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-500/25'
-              }`}
+        {/* Department Selector */}
+        <div className="mb-6">
+          <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            Department
+          </label>
+          <div className="relative">
+            <select
+              value={selectedDeptId}
+              onChange={(e) => {
+                setSelectedDeptId(e.target.value);
+                setError(null);
+              }}
+              className="w-full appearance-none px-3.5 py-2.5 rounded-xl bg-[#081614] border border-[#183e36] text-white text-xs focus:outline-none focus:ring-1 focus:ring-[#147a6e] cursor-pointer"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Authenticating...</span>
-                </>
-              ) : (
-                <>
-                  <span>Sign In as {role === 'MANAGER' ? 'Manager' : 'Employee'}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
-
-          {/* Quick Demo Credentials Pill */}
-          <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-400 space-y-2">
-            <div className="flex items-center gap-1 font-semibold text-slate-300">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>One-Click Demo Credentials:</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  handleRoleChange('MANAGER');
-                  setEmail('manager@orggraph.internal');
-                  setPassword('Manager@123');
-                }}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-left transition-colors"
-              >
-                <div className="font-bold text-white text-xs">Manager</div>
-                <div className="text-[10px] text-slate-400 truncate">manager@orggraph.internal</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  handleRoleChange('EMPLOYEE');
-                  const eng = departments.find(d => d.name === 'Engineering');
-                  if (eng) setDepartmentId(eng.id);
-                  setEmail('alice@eng.orggraph.internal');
-                  setPassword('Employee@123');
-                }}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-left transition-colors"
-              >
-                <div className="font-bold text-emerald-400 text-xs">Engineer</div>
-                <div className="text-[10px] text-slate-400 truncate">alice@eng.orggraph.internal</div>
-              </button>
-            </div>
+              <option value="" disabled className="text-slate-500">
+                Select your department
+              </option>
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id} className="bg-[#0e221f] text-white">
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
+          {role === 'MANAGER' && (
+            <p className="text-[11px] text-teal-300/60 mt-1">
+              * Managers have organization-wide access across all departments.
+            </p>
+          )}
+        </div>
+
+        {/* Continue with Google Button */}
+        <button
+          type="button"
+          onClick={handleGoogleClick}
+          disabled={loading}
+          className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs shadow-md flex items-center justify-center gap-2.5 transition-all duration-150 disabled:opacity-60 cursor-pointer"
+        >
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+          ) : (
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+              />
+            </svg>
+          )}
+          <span>Continue with Google</span>
+        </button>
+
+        {/* Footer Subtext */}
+        <p className="text-xs text-slate-400 text-center mt-3">
+          Use your organization&apos;s Google account.
+        </p>
+
+        {/* Manual Credentials Toggle */}
+        <div className="mt-6 pt-4 border-t border-[#183e36]/70 text-center">
+          <button
+            type="button"
+            onClick={() => setShowManualLogin(!showManualLogin)}
+            className="text-[11px] text-teal-300/70 hover:text-teal-200 transition-colors"
+          >
+            {showManualLogin ? '▲ Hide manual credentials' : '▼ Or sign in with password'}
+          </button>
+
+          {showManualLogin && (
+            <form onSubmit={handleManualSubmit} className="mt-4 space-y-3 text-left">
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@orggraph.internal"
+                  className="w-full px-3 py-2 rounded-xl bg-[#081614] border border-[#183e36] text-white text-xs focus:ring-1 focus:ring-[#147a6e]"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-[#081614] border border-[#183e36] text-white text-xs focus:ring-1 focus:ring-[#147a6e]"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 rounded-xl bg-[#147a6e] hover:bg-[#10655b] text-white font-semibold text-xs transition-colors"
+              >
+                Sign In
+              </button>
+            </form>
+          )}
         </div>
       </div>
+
+      {/* Google Organization SSO Account Picker Modal */}
+      {showGooglePicker && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+            
+            <div className="flex items-center space-x-2.5">
+              <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+              </svg>
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                  Google Workspace SSO
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Select your organization profile
+                </p>
+              </div>
+            </div>
+
+            <div className="divide-y divide-slate-100 dark:divide-slate-800 border-y border-slate-100 dark:border-slate-800 py-1">
+              {availableAccounts.map((acc) => (
+                <button
+                  key={acc.email}
+                  type="button"
+                  onClick={() => executeGoogleLogin(acc.email)}
+                  className="w-full py-3 px-2 flex items-center space-x-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-xl transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-full bg-teal-600 text-white font-bold text-xs flex items-center justify-center flex-shrink-0">
+                    {acc.avatarText}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                      {acc.name}
+                    </div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      {acc.email}
+                    </div>
+                    <div className="text-[10px] text-teal-600 dark:text-teal-400 font-medium">
+                      {acc.dept}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowGooglePicker(false)}
+                className="px-4 py-1.5 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
