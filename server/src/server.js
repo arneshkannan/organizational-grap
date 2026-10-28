@@ -88,6 +88,9 @@ app.use('/api/departments', departmentRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/graph', graphRoutes);
+app.get('/', (req, res) => {
+  res.status(200).send('OrgGraph API is running');
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -104,7 +107,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error.' });
 });
 
-server.listen(PORT, () => {
-  console.log(`🚀 OrgGraph Backend Server running on http://localhost:${PORT}`);
-  console.log(`⚡ WebSocket Server active on ws://localhost:${PORT}/ws`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 OrgGraph Backend Server running on port ${PORT}`);
+  console.log(`⚡ WebSocket endpoint available at /ws`);
 });
